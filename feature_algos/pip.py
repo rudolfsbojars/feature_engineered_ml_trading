@@ -6,7 +6,7 @@ class AdaptivePIP(bt.Indicator):
     lines = ('peak', 'valley', 'structure')
     params = (
         ("atr_period", 14),
-        ("atr_multiplier", 10),
+        ("atr_multiplier", 5),
     )
 
     plotinfo = dict(subplot=False)
@@ -16,67 +16,123 @@ class AdaptivePIP(bt.Indicator):
         structure=dict(color='blue', ls='-', linewidth=2, _name='Structure'),
     )
     
-    def __init__(self):
 
+    def __init__(self):
         self.addminperiod(self.params.atr_period)
+        self._confirmed = []
+        
 
     def next(self):
+        current_len = len(self)
+        current_idx_abs = current_len - 1
+
+        anchor_abs = 0
+        if self._confirmed:
+            anchor_abs = self._confirmed[-1][1] 
+
+        window_size = current_len - anchor_abs
         
-        for i in range(-self.data.buflen(), 0):
+        data = np.array(self.data.close.get(size=window_size))
+        highs = np.array(self.data.high.get(size=window_size))
+        lows = np.array(self.data.low.get(size=window_size))
+
+        atr_array = self._compute_atr(highs, lows, data)
+
+        segment = data
+        seg_offset_abs = anchor_abs
+
+        if len(segment) < 3:
+            return
+
+        pips = self._get_pips(segment, seg_offset_abs=seg_offset_abs, atr_array=atr_array)
+
+        confirmed_indices = {p[1] for p in self._confirmed}
+
+        for p in pips:
+            price, abs_idx, label, origin = p
+            if (origin == "confirmed"
+                    and label in ("peak", "valley")
+                    and abs_idx > anchor_abs 
+                    and abs_idx < current_idx_abs 
+                    and abs_idx not in confirmed_indices):
+                self._confirmed.append(p)
+                confirmed_indices.add(abs_idx)
+
+        for i in range(-window_size + 1, 1):
             self.lines.structure[i] = float('nan')
             self.lines.peak[i] = float('nan')
             self.lines.valley[i] = float('nan')
 
-        data = np.array(self.data.close.get(size=self.data.buflen()))
+        for (price, abs_idx, label, origin) in self._confirmed:
+            bt_index = abs_idx - current_idx_abs
+            try:
+                if label == "peak":
+                    self.lines.peak[bt_index] = price
+                elif label == "valley":
+                    self.lines.valley[bt_index] = price
+            except IndexError:
+                continue
 
-        pips = self.get_perceptually_important_points(data)
-        
-        for i in range(len(pips)):
-            bt_index = pips[i][1] - self.data.buflen() + 1
+        for i in range(len(self._confirmed) - 1):
+            p_a = self._confirmed[i]
+            p_b = self._confirmed[i+1]
             
+            price_a, abs_a = p_a[0], p_a[1]
+            price_b, abs_b = p_b[0], p_b[1]
             
-            #Visualize Maxmimums and minimums
-            match pips[i][2]:
-                case "peak":
-                    self.lines.peak[bt_index] = pips[i][0]
-                case "valley":
-                    self.lines.valley[bt_index] = pips[i][0]
-                     
-            #Visualize Structure
-            if i < len(pips) - 1:
-                run = pips[i+1][1] - pips[i][1]
+            run = abs_b - abs_a
+            if run <= 0: continue
                 
-                if run > 0:
-                    rise = pips[i+1][0] - pips[i][0]
-                    slope = rise / run
+            slope = (price_b - price_a) / run
+            
+            for step in range(run + 1):
+                target_abs_idx = abs_a + step
+                rel_idx = target_abs_idx - current_idx_abs
+                
+                try:
+                    self.lines.structure[rel_idx] = price_a + (slope * step)
+                except IndexError:
+                    continue
+                            
                     
-                    for step in range(run + 1):
-                        self.lines.structure[bt_index + step] = pips[i][0] + (slope * step)  
-                           
+    def _compute_atr(self, highs, lows, closes):
+        n = len(closes)
+        atr = np.full(n, 1e-8)
+        period = self.params.atr_period
+
+        for i in range(1, n):
+            tr = max(
+                highs[i] - lows[i],
+                abs(highs[i] - closes[i - 1]),
+                abs(lows[i] - closes[i - 1])
+            )
+            atr[i] = tr
+
+        if n > period:
+            atr[period] = np.mean(atr[1:period + 1])
+            for i in range(period + 1, n):
+                atr[i] = (atr[i - 1] * (period - 1) + atr[i]) / period
+
+        return atr
     
-    def get_perceptually_important_points(self, data):
+
+    def _get_pips(self, data, seg_offset_abs=0, atr_array=None, anchor_local=0):
         data = list(data)
         n = len(data)
         if n < 3:
-            return [(data[i], i, "none") for i in range(n)]
+            return [(data[i], seg_offset_abs + i, "none", "assigned_endpoint") for i in range(n)]
 
-        def segment_atr(start):
-            lo = max(0, start - self.params.atr_period)
-            seg = data[lo:start + 1]
-            if len(seg) < 2:
-                return 1e-8
-            ranges = [abs(seg[i] - seg[i - 1]) for i in range(1, len(seg))]
-            window = ranges[-self.params.atr_period:] if len(ranges) >= self.params.atr_period else ranges
-            return max(float(np.mean(window)), 1e-8)
+        def segment_atr(local_idx):
+            full_idx = anchor_local + local_idx
+            if atr_array is not None and full_idx < len(atr_array):
+                return max(atr_array[full_idx], 1e-8)
+            return 1e-8
 
         pips_indices = [0, n - 1]
         pips_set = set(pips_indices)
-        directions = {}
 
-        max_iter = n
-        for _ in range(max_iter):
+        for _ in range(n):
             pips_indices.sort()
-            added_any = False
 
             for i in range(len(pips_indices) - 1):
                 start_idx = pips_indices[i]
@@ -84,13 +140,14 @@ class AdaptivePIP(bt.Indicator):
                 if end_idx - start_idx < 2:
                     continue
 
-                local_atr = segment_atr(start_idx)
+                mid_idx = (start_idx + end_idx) // 2
+                local_atr = segment_atr(mid_idx)
                 threshold = self.params.atr_multiplier * local_atr
 
                 x1, x2 = start_idx, end_idx
                 y1, y2 = data[x1], data[x2]
                 dx, dy = x2 - x1, y2 - y1
-                denom = np.sqrt(dx**2 + dy**2)
+                denom = np.sqrt(dx ** 2 + dy ** 2)
 
                 best_dist = -1
                 best_idx = -1
@@ -111,25 +168,13 @@ class AdaptivePIP(bt.Indicator):
                         best_price_dist = data[curr_idx] - interp
 
                 if best_idx != -1 and abs(best_price_dist) >= threshold and best_idx not in pips_set:
-                    pips_indices.append(best_idx)
-                    pips_set.add(best_idx)
-                    directions[best_idx] = "peak" if best_price_dist > 0 else "valley"
-                    added_any = True
+                    label = "peak" if best_price_dist > 0 else "valley"
+                    
+                    return [(data[best_idx], seg_offset_abs + best_idx, label, "confirmed")]
 
-            if not added_any:
-                break
-
-        pips_indices.sort()
-
-        if len(pips_indices) >= 2:
-            i0, i1 = pips_indices[0], pips_indices[1]
-            directions[i0] = "valley" if data[i0] < data[i1] else "peak"
-            ie, ip = pips_indices[-1], pips_indices[-2]
-            directions[ie] = "valley" if data[ie] < data[ip] else "peak"
-
-        return [(data[idx], idx, directions.get(idx, "none")) for idx in pips_indices]
+                return []
+            
         
-    
     """
     
     Best out of Directional Change, Rolling window (fractals)

@@ -4,9 +4,8 @@ from datetime import datetime
 from feature_algos.rsi import RSI
 from feature_algos.pip import AdaptivePIP
 from feature_algos.ema import EMA
-from feature_algos.vwap import VWAP
-from feature_algos.smc import BreakOfStructure, FairValueGap
-from feature_algos.volume_profile import VolumeArea, PointOfControl
+from feature_algos.smc import BreakOfStructure, FVG
+from feature_algos.volume_profile import VolumeProfile
 import pandas as pd
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,136 +20,87 @@ cols = [
 
 
 class Strategy(bt.Strategy):    
-    def __init__(self):
+    def __init__(self, volume_file=None):
         self.rsi = RSI(self.data, period=14)
-        self.structure = AdaptivePIP(self.data)
         self.ema20 = EMA(self.data, period=20)
         self.ema50 = EMA(self.data, period=50)
-        self.vwap = VWAP(self.data, period=14)
+        self.structure = AdaptivePIP(self.data, atr_period=14, atr_multiplier=5)
+        self.bos = BreakOfStructure(pip_indicator=self.structure)
+        self.fvg = FVG(self.data, buffer=0.001)
+        self.vbp = VolumeProfile(
+            self.data,
+            bin_size=50,
+            window_days=5,
+            volume_file=volume_file
+        )
 
     def next(self):
-        pass
+        ts = self.data.datetime.datetime(0)
+        rsi_val = self.rsi[0]
+        ema20_val = self.ema20[0]
+        ema50_val = self.ema50[0]
 
+        # FVG & BOS could be lists or single values depending on your implementation
+        fvg_val = self.fvg[0] if hasattr(self.fvg, '__getitem__') else None
+        bos_val = self.bos[0] if hasattr(self.bos, '__getitem__') else None
+
+        # VolumeProfile summary: largest volume price in current bar
+        if self.vbp.volume_df and ts in self.vbp.volume_df:
+            vol_levels = self.vbp.volume_df[ts]
+            if vol_levels:
+                max_price = max(vol_levels, key=lambda p: vol_levels[p])
+                max_vol = vol_levels[max_price]
+            else:
+                max_price = max_vol = None
+        else:
+            max_price = max_vol = None
+
+        print(f"{ts} | RSI: {rsi_val:.2f} | EMA20: {ema20_val:.2f} | EMA50: {ema50_val:.2f} "
+              f"| FVG: {fvg_val} | BOS: {bos_val} "
+              f"| VBP Max: {max_price} @ {max_vol}")
+    
 if __name__ == '__main__':
     
+    volume_df = pd.read_parquet("data/price_level_volumes/BTCUSDT/vp_BTCUSDT-1h-2022-04.parquet")
+    print(volume_df.head())
+
+    df = pd.read_csv("data/raw/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2022-04.csv", header=None)
+    df.columns = [
+        "open_time","open","high","low","close","volume_btc",
+        "close_time","quote_volume_usd","num_trades",
+        "taker_buy_vol_btc","taker_buy_vol_usd","ignore"
+    ]
+    df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
+    df.set_index('open_time', inplace=True)
+    df = df[['open','high','low','close','volume_btc']]
+    df.rename(columns={'volume_btc':'volume'}, inplace=True)
+
+    df_hourly = df.resample('1h').agg({
+        'open': 'first',
+        'high': 'max',
+        'low': 'min',
+        'close': 'last',
+        'volume': 'sum'
+    })
+    df_hourly.dropna(inplace=True)
+
+    data = bt.feeds.PandasData(dataname=df_hourly)
+    
+    volume_df = pd.read_parquet("data/price_level_volumes/BTCUSDT/vp_BTCUSDT-1h-2022-04.parquet")
+    volume_levels= {}
+    for ts, row in volume_df.iterrows():
+        non_zero = row[row != 0].to_dict()
+        if non_zero:  # skip timestamps with all zeros
+            volume_levels[ts] = non_zero
+    
     cerebro = bt.Cerebro()
-
-    df = yf.download('EURUSD=X', start='2026-03-1', end='2026-03-30', interval='15m')
-    print(df)
-    
-    df.columns = df.columns.get_level_values(0) 
-    df.columns = df.columns.str.lower()
-    
-    data = bt.feeds.PandasData(dataname=df)
     cerebro.adddata(data)
+    cerebro.addstrategy(Strategy, volume_file="data/price_level_volumes/BTCUSDT/vp_BTCUSDT-1h-2022-04.parquet")
 
-
-    cerebro.addstrategy(Strategy)
-    cerebro.broker.setcash(10000)
+    results = cerebro.run()
     
-    print(f'Starting Portfolio Value: {cerebro.broker.getvalue():.2f}')
-    
-    cerebro.run(plot=True)
-
-    print(f'Final Portfolio Value: {cerebro.broker.getvalue():.2f}')
-
-    cerebro.plot(style='candlestick')
+    cerebro.plot()
     
     
-    
-    
-    
-"""
-    print(pd.read_parquet("data/price_level_volumes/SOLUSDT/vp_SOLUSDT-1h-2024-01.parquet"))
-
-    #plot_volume_profile()
-
-    df = pd.read_csv(
-        "data/raw/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2022-02.csv",
-        names=cols
-    )
-
-    df["open_time"] = pd.to_datetime(df["open_time"], unit="ms")
-    df[["open","high","low","close","volume"]] = df[["open","high","low","close","volume"]].astype(float)
-
-    df.set_index("open_time", inplace=True)
-
-    df_1h = df.resample("1h").agg({
-        "open": "first",
-        "high": "max",
-        "low": "min",
-        "close": "last",
-        "volume": "sum"
-    }).dropna()
-
-    mpf.plot(
-        df_1h,
-        type='candle',
-        style='charles',
-        title='BTCUSDT 1-Hour Candles - Feb 2022',
-        ylabel='Price (USD)',
-        figsize=(20,10)
-    )
-    
-    
-    
-def plot_volume_profile():
-    df = pd.read_csv(
-        "data/raw/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-2022-02.csv",
-        names=cols
-    )
-    df["open_time"] = pd.to_datetime(df["open_time"], unit="ms")
-    df[["open","high","low","close","volume"]] = df[["open","high","low","close","volume"]].astype(float)
-    df.set_index("open_time", inplace=True)
-
-    df_1h = df.resample("1h").agg({
-        "open":"first","high":"max","low":"min","close":"last","volume":"sum"
-    }).dropna()
-
-    vp = pd.read_parquet("data/price_level_volumes/BTCUSDT/vp_BTCUSDT-1h-2022-02.parquet")
-    vp.index = pd.to_datetime(vp.index)
-
-    hours, price_cols = vp.shape
-    all_volume = vp.values 
-    price_levels = np.array(vp.columns, dtype=float)
-
-    levels = np.linspace(price_levels.min(), price_levels.max(), 100)
-    volume_profile = np.zeros_like(levels)
-
-    for i in range(len(levels)-1):
-        mask = (price_levels >= levels[i]) & (price_levels < levels[i+1])
-        if mask.any():
-            volume_profile[i] = all_volume[:, mask].sum()
-
-    volume_profile_norm = volume_profile / volume_profile.max()
-
-    fig, ax = plt.subplots(figsize=(20,10))
-
-    vp_max_width = 0.3 * len(df_1h) 
-    ax.barh(levels, volume_profile_norm*vp_max_width,
-            left=-0.5, height=(levels[1]-levels[0]),
-            color='lightblue', alpha=0.6, edgecolor=None)
-
-    mpf.plot(df_1h, type='candle', style='charles', ax=ax, volume=False)
-
-    ax.set_xlim(-0.5, len(df_1h)-0.5)
-    ax.set_ylabel("Price (USD)")
-    ax.set_title("BTCUSDT 1-Hour Candles + Monthly Volume Profile Feb 2022")
-    plt.tight_layout()
-    plt.show()
-    
-    
-def generate_volume_profile(price_df, volume_df, range):
-    pass
-    
-#takes in a data frame of 1 minute candles and converts them to desired resoltion
-def convert_to_time_resoltion(data_frame, time_frame):
-    return data_frame.resample(time_frame).agg({
-        "open": "first",
-        "high": "max",
-        "low": "min",
-        "close": "last",
-        "volume": "sum"
-    }).dropna()
-
-"""
+    vp = results[0].vbp
+    vp.plot_volume_profile()

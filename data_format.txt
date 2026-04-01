@@ -1,0 +1,13 @@
+data/raw/spot/monthly/klines/BTCUSDT/1m/BTCUSDT-1m-year-month.csv
+
+0   1769904000000000  Open Time
+1	78741.10000000	Open
+2	78774.27000000	High
+3	78681.48000000	Low
+4	78683.61000000	Close
+5	11.37750000	Volume (BTC)
+6	1769904059999999	Close Time	
+7	895606.46023360	Quote Volume (USD)
+8	5610	Number of Trades
+9	3.57967000	Taker Buy Vol (BTC)
+10	281765.11959420	Taker Buy Quote Vol (USD)

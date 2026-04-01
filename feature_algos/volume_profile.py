@@ -20,7 +20,10 @@ class VolumeProfile(bt.Indicator):
         self.volumes = []
 
         self.volume_df = None
-        
+
+        self.bins = None
+        self.bin_volumes = None
+
         if self.p.volume_file:
             self.load_volume_file(self.p.volume_file)
 
@@ -31,7 +34,38 @@ class VolumeProfile(bt.Indicator):
         self.highs.append(self.data.high[0])
         self.closes.append(self.data.close[0])
         self.volumes.append(self.data.volume[0])
-        self.lines.dummy[0] = 0 
+        self.lines.dummy[0] = 0  # placeholder line
+
+        # compute rolling 5-day volume distribution
+        if not self.volume_df:
+            return
+
+        window_start = ts - pd.Timedelta(days=self.p.window_days)
+        window_timestamps = [t for t in self.timestamps if t > window_start]
+
+        if not window_timestamps:
+            return
+
+        # determine min/max price in window
+        lows = [self.lows[self.timestamps.index(t)] for t in window_timestamps]
+        highs = [self.highs[self.timestamps.index(t)] for t in window_timestamps]
+        min_price = min(lows)
+        max_price = max(highs)
+        self.bins = np.arange(min_price, max_price + self.p.bin_size, self.p.bin_size)
+        self.bin_volumes = np.zeros(len(self.bins) - 1)
+
+        # aggregate volumes per bin
+        for t in window_timestamps:
+            if t not in self.volume_df:
+                continue
+            for price_str, vol in self.volume_df[t].items():
+                price_level = float(price_str)
+                idx = np.searchsorted(self.bins, price_level, side='right') - 1
+                if 0 <= idx < len(self.bin_volumes):
+                    self.bin_volumes[idx] += vol
+                    
+        max_idx = np.argmax(self.bin_volumes)
+        print(self.bin_volumes[max_idx])
 
     def load_volume_file(self, file_path):
         df = pd.read_parquet(file_path)

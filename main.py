@@ -35,29 +35,7 @@ class Strategy(bt.Strategy):
         )
 
     def next(self):
-        ts = self.data.datetime.datetime(0)
-        rsi_val = self.rsi[0]
-        ema20_val = self.ema20[0]
-        ema50_val = self.ema50[0]
-
-        # FVG & BOS could be lists or single values depending on your implementation
-        fvg_val = self.fvg[0] if hasattr(self.fvg, '__getitem__') else None
-        bos_val = self.bos[0] if hasattr(self.bos, '__getitem__') else None
-
-        # VolumeProfile summary: largest volume price in current bar
-        if self.vbp.volume_df and ts in self.vbp.volume_df:
-            vol_levels = self.vbp.volume_df[ts]
-            if vol_levels:
-                max_price = max(vol_levels, key=lambda p: vol_levels[p])
-                max_vol = vol_levels[max_price]
-            else:
-                max_price = max_vol = None
-        else:
-            max_price = max_vol = None
-
-        print(f"{ts} | RSI: {rsi_val:.2f} | EMA20: {ema20_val:.2f} | EMA50: {ema50_val:.2f} "
-              f"| FVG: {fvg_val} | BOS: {bos_val} "
-              f"| VBP Max: {max_price} @ {max_vol}")
+        pass
     
 if __name__ == '__main__':
     

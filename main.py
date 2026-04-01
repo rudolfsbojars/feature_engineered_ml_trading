@@ -1,16 +1,11 @@
 import backtrader as bt
-import yfinance as yf
-from datetime import datetime
 from feature_algos.rsi import RSI
 from feature_algos.pip import AdaptivePIP
 from feature_algos.ema import EMA
 from feature_algos.smc import BreakOfStructure, FVG
 from feature_algos.volume_profile import VolumeProfile
 import pandas as pd
-import matplotlib.pyplot as plt
-import numpy as np
-import mplfinance as mpf
-import matplotlib.dates as mdates
+import os
 
 cols = [
     "open_time","open","high","low","close","volume",
@@ -26,17 +21,138 @@ class Strategy(bt.Strategy):
         self.ema50 = EMA(self.data, period=50)
         self.structure = AdaptivePIP(self.data, atr_period=14, atr_multiplier=5)
         self.bos = BreakOfStructure(pip_indicator=self.structure)
-        self.fvg = FVG(self.data, buffer=0.001)
+        self.fvg = FVG(self.data, buffer=5)
         self.vbp = VolumeProfile(
             self.data,
             bin_size=50,
             window_days=5,
             volume_file=volume_file
         )
-
+        self.feature_rows = []
+                
     def next(self):
-        pass
+        self.print_values()
+        self.save_values()
+        
+        
+    def save_values(self):
+        timestamp = self.data.datetime.datetime(0)
+
+        open_ = self.data.open[0]
+        high = self.data.high[0]
+        low = self.data.low[0]
+        close = self.data.close[0]
+        volume = self.data.volume[0]
+
+        rsi = self.rsi.lines.rsi[0]
+        ema20 = self.ema20.lines.ema[0]
+        ema50 = self.ema50.lines.ema[0]
+
+        bos_bull = self.bos.lines.bos_bull[0] if hasattr(self.bos.lines, 'bos_bull') else float('nan')
+        bos_bear = self.bos.lines.bos_bear[0] if hasattr(self.bos.lines, 'bos_bear') else float('nan')
+
+        fvg_up_event = self.fvg.fvg_up_event[0]
+        fvg_down_event = self.fvg.fvg_down_event[0]
+        fvg_up_active = self.fvg.fvg_up_active[0]
+        fvg_down_active = self.fvg.fvg_down_active[0]
+        fvg_up_price = self.fvg.fvg_up[0]
+        fvg_down_price = self.fvg.fvg_down[0]
+
+        poc = self.vbp.poc if self.vbp.poc is not None else float('nan')
+        poc_volume = self.vbp.poc_volume if hasattr(self.vbp, 'poc_volume') else float('nan')
+        poc_delta = self.vbp.poc_delta if hasattr(self.vbp, 'poc_delta') else float('nan')
+        va_low = self.vbp.va_low if self.vbp.va_low is not None else float('nan')
+        va_high = self.vbp.va_high if self.vbp.va_high is not None else float('nan')
+
+        row = {
+            'timestamp': timestamp,
+            'open': open_,
+            'high': high,
+            'low': low,
+            'close': close,
+            'volume': volume,
+            'rsi': rsi,
+            'ema20': ema20,
+            'ema50': ema50,
+            'bos_bull': bos_bull,
+            'bos_bear': bos_bear,
+            'fvg_up_event': fvg_up_event,
+            'fvg_down_event': fvg_down_event,
+            'fvg_up_active': fvg_up_active,
+            'fvg_down_active': fvg_down_active,
+            'fvg_up_price': fvg_up_price,
+            'fvg_down_price': fvg_down_price,
+            'poc': poc,
+            'poc_volume': poc_volume,
+            'poc_delta': poc_delta,
+            'va_low': va_low,
+            'va_high': va_high
+        }
+
+        self.feature_rows.append(row)
+        
+    def print_values(self):
+
+        open_ = self.data.open[0]
+        high = self.data.high[0]
+        low = self.data.low[0]
+        close = self.data.close[0]
+        volume = self.data.volume[0]
+
+        print(
+            f"{self.data.datetime.datetime(0)} | "
+            f"O: {open_:.2f} | H: {high:.2f} | L: {low:.2f} | C: {close:.2f} | V: {volume:.6f}"
+        )
     
+        rsi = self.rsi.lines.rsi[0] 
+        ema20 = self.ema20.lines.ema[0] 
+        ema50 = self.ema50.lines.ema[0] 
+
+        print(
+            f"{self.data.datetime.datetime(0)} | RSI: {rsi:.2f} | EMA20: {ema20:.2f} | EMA50: {ema50:.2f}")
+    
+        bos_bull = self.bos.lines.bos_bull[0]
+        bos_bear = self.bos.lines.bos_bear[0]
+
+        print(f"{self.data.datetime.datetime(0)} | BOS bull: {bos_bull} | BOS bear: {bos_bear}")
+            
+        fvg_up_event = self.fvg.fvg_up_event[0]
+        fvg_down_event = self.fvg.fvg_down_event[0]
+
+        fvg_up_active = self.fvg.fvg_up_active[0]
+        fvg_down_active = self.fvg.fvg_down_active[0]
+
+        fvg_up_price = self.fvg.fvg_up[0]
+        fvg_down_price = self.fvg.fvg_down[0]
+        
+        print(
+            f"{self.data.datetime.datetime(0)} | "
+            f"FVG Up Event: {fvg_up_event} | FVG Down Event: {fvg_down_event} | "
+            f"FVG Up Active: {fvg_up_active} | FVG Down Active: {fvg_down_active} | "
+            f"FVG Up Price: {fvg_up_price} | FVG Down Price: {fvg_down_price}"
+        )
+
+        poc = self.vbp.poc
+        poc_volume = self.vbp.poc_volume
+        poc_delta = self.vbp.poc_delta
+        va_low = self.vbp.va_low
+        va_high = self.vbp.va_high
+
+        if poc is not None and va_low is not None and va_high is not None:
+            print(f"{self.data.datetime.datetime(0)} | POC: {poc} | POC Volume: {poc_volume} | VA: {va_low}-{va_high} | POC Delta: {poc_delta}")
+
+
+def save_features_to_file(name, strategy):
+    output_dir = "data/feature_extracted"
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, name)
+
+    df_features = pd.DataFrame(strategy.feature_rows)
+    df_features = df_features.fillna(0)
+    df_features.to_csv(output_file, index=False)
+    print(f"Features saved to {output_file}")
+
+        
 if __name__ == '__main__':
     
     volume_df = pd.read_parquet("data/price_level_volumes/BTCUSDT/vp_BTCUSDT-1h-2022-04.parquet")
@@ -68,17 +184,23 @@ if __name__ == '__main__':
     volume_levels= {}
     for ts, row in volume_df.iterrows():
         non_zero = row[row != 0].to_dict()
-        if non_zero:  # skip timestamps with all zeros
+        if non_zero:
             volume_levels[ts] = non_zero
     
     cerebro = bt.Cerebro()
     cerebro.adddata(data)
     cerebro.addstrategy(Strategy, volume_file="data/price_level_volumes/BTCUSDT/vp_BTCUSDT-1h-2022-04.parquet")
 
-    results = cerebro.run()
+    results = cerebro.run(runonce=False)
+    strategy = results[0]
+    
+    save_features_to_file("BTCUSDT-1h-2022-04.csv", strategy=strategy)
     
     cerebro.plot()
     
-    
     vp = results[0].vbp
     vp.plot_volume_profile()
+    
+    
+    
+# z-score normalization and then save again an then feed it to the model

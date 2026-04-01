@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 from matplotlib.dates import date2num
 import matplotlib.pyplot as plt
+from datetime import timedelta
+
 
 class VolumeProfile(bt.Indicator):
     lines = ('dummy',)
@@ -19,53 +21,112 @@ class VolumeProfile(bt.Indicator):
         self.closes = []
         self.volumes = []
 
-        self.volume_df = None
-
-        self.bins = None
-        self.bin_volumes = None
+        self.volume_df = {}
+        self.window_start = None
+        self.window_bins = []
 
         if self.p.volume_file:
             self.load_volume_file(self.p.volume_file)
 
+        self.poc = None
+        self.poc_volume = None
+        self.va_low = None
+        self.va_high = None
+        
+        self.prev_poc = None
+        self.poc_delta = 0 
+
     def next(self):
         ts = self.data.datetime.datetime(0)
+
         self.timestamps.append(ts)
         self.lows.append(self.data.low[0])
         self.highs.append(self.data.high[0])
         self.closes.append(self.data.close[0])
         self.volumes.append(self.data.volume[0])
-        self.lines.dummy[0] = 0  # placeholder line
+        self.lines.dummy[0] = 0
 
-        # compute rolling 5-day volume distribution
-        if not self.volume_df:
+        if self.window_start is None:
+            self.window_start = ts
+            self.window_bins = []
+
+        if ts >= self.window_start + timedelta(days=self.p.window_days):
+            self.window_start = ts
+            self.timestamps = []
+            self.lows = []
+            self.highs = []
+            self.closes = []
+            self.volumes = []
+            self.poc = None
+            self.va_low = None
+            self.va_high = None
+            self.window_bins = []
+
+        self.window_bins.append((self.data.low[0], self.data.high[0], self.data.close[0], self.data.volume[0]))
+
+        if not self.window_bins or not self.volume_df:
             return
 
-        window_start = ts - pd.Timedelta(days=self.p.window_days)
-        window_timestamps = [t for t in self.timestamps if t > window_start]
-
-        if not window_timestamps:
-            return
-
-        # determine min/max price in window
-        lows = [self.lows[self.timestamps.index(t)] for t in window_timestamps]
-        highs = [self.highs[self.timestamps.index(t)] for t in window_timestamps]
+        lows = [low for low, _, _, _ in self.window_bins]
+        highs = [high for _, high, _, _ in self.window_bins]
         min_price = min(lows)
         max_price = max(highs)
-        self.bins = np.arange(min_price, max_price + self.p.bin_size, self.p.bin_size)
-        self.bin_volumes = np.zeros(len(self.bins) - 1)
 
-        # aggregate volumes per bin
-        for t in window_timestamps:
-            if t not in self.volume_df:
+        if max_price - min_price < 1e-6:
+            return
+
+        bins = np.arange(min_price, max_price + self.p.bin_size, self.p.bin_size)
+        vol_bins = np.zeros(len(bins)-1)
+
+        for ts_idx in self.timestamps:
+            if ts_idx not in self.volume_df:
                 continue
-            for price_str, vol in self.volume_df[t].items():
+            for price_str, vol in self.volume_df[ts_idx].items():
                 price_level = float(price_str)
-                idx = np.searchsorted(self.bins, price_level, side='right') - 1
-                if 0 <= idx < len(self.bin_volumes):
-                    self.bin_volumes[idx] += vol
-                    
-        max_idx = np.argmax(self.bin_volumes)
-        print(self.bin_volumes[max_idx])
+                idx = np.searchsorted(bins, price_level, side='right') - 1
+                if 0 <= idx < len(vol_bins):
+                    vol_bins[idx] += vol
+
+        if vol_bins.sum() == 0:
+            return
+
+        poc_idx = np.argmax(vol_bins)
+        self.poc = (bins[poc_idx] + bins[poc_idx+1])/2
+        self.poc_volume = vol_bins[poc_idx]
+        total_vol = vol_bins.sum()
+        target_vol = 0.76 * total_vol
+        
+        if self.prev_poc is not None and self.poc is not None:
+            if self.poc != self.prev_poc:
+                self.poc_delta = self.poc - self.prev_poc
+            else:
+                self.poc_delta = 0
+        else:
+            self.poc_delta = 0
+
+        self.prev_poc = self.poc
+
+        va_indices = [poc_idx]
+        cum_vol = vol_bins[poc_idx]
+        left = poc_idx - 1
+        right = poc_idx + 1
+        while cum_vol < target_vol:
+            left_vol = vol_bins[left] if left >= 0 else -1
+            right_vol = vol_bins[right] if right < len(vol_bins) else -1
+
+            if left_vol >= right_vol and left_vol > 0:
+                va_indices.append(left)
+                cum_vol += left_vol
+                left -= 1
+            elif right_vol > 0:
+                va_indices.append(right)
+                cum_vol += right_vol
+                right += 1
+            else:
+                break
+
+        self.va_low = bins[min(va_indices)]
+        self.va_high = bins[max(va_indices)+1]
 
     def load_volume_file(self, file_path):
         df = pd.read_parquet(file_path)
@@ -76,16 +137,38 @@ class VolumeProfile(bt.Indicator):
                 self.volume_df[ts] = non_zero
 
     def plot_volume_profile(self):
-        if not self.timestamps or not self.volume_df:
-            print("No data to plot.")
+        if not self.volume_df:
+            print("No volume data to plot.")
             return
 
+        all_timestamps = sorted(self.volume_df.keys())
+        lows, highs, closes, volumes = [], [], [], []
+
+        for ts in all_timestamps:
+            price_levels = [float(p) for p in self.volume_df[ts].keys()]
+            if not price_levels:
+                lows.append(0)
+                highs.append(0)
+                closes.append(0)
+                volumes.append(0)
+                continue
+
+            low = min(price_levels)
+            high = max(price_levels)
+            close = price_levels[-1]
+            vol = sum(self.volume_df[ts].values())
+
+            lows.append(low)
+            highs.append(high)
+            closes.append(close)
+            volumes.append(vol)
+
         df_hourly = pd.DataFrame({
-            'low': self.lows,
-            'high': self.highs,
-            'close': self.closes,
-            'volume': self.volumes
-        }, index=self.timestamps)
+            'low': lows,
+            'high': highs,
+            'close': closes,
+            'volume': volumes
+        }, index=all_timestamps)
 
         bin_size = self.p.bin_size
         window_days = self.p.window_days
@@ -95,7 +178,6 @@ class VolumeProfile(bt.Indicator):
         max_price = df_hourly['high'].max()
         bins = np.arange(min_price, max_price + bin_size, bin_size)
 
-        # Compute max volume for normalization
         max_volume = 0
         for start in range(0, len(df_hourly), window_hours):
             end = start + window_hours
@@ -133,7 +215,6 @@ class VolumeProfile(bt.Indicator):
                     if 0 <= idx < len(vol_bins):
                         vol_bins[idx] += vol
 
-            # Normalize and plot
             vol_ratio = vol_bins / max_volume
             start_time = date2num(df_window.index[0])
             end_time = date2num(df_window.index[-1])

@@ -5,6 +5,13 @@ from matplotlib.dates import date2num
 import matplotlib.pyplot as plt
 from datetime import timedelta
 
+# Create teh volume agreagator based on range given
+# Range extractor based on type
+# Poc Finder
+# Volume Area Finder
+# Plotter
+# Data
+
 
 class VolumeProfile(bt.Indicator):
     lines = ('dummy',)

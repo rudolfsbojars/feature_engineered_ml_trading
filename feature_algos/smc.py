@@ -72,12 +72,11 @@ class FVG(bt.Indicator):
         self.lines.fvg_up_event[0] = 0.0
         self.lines.fvg_down_event[0] = 0.0
 
-        if l1 > h0 and l1 > h2 - self.params.buffer:
+        if l1 > h0 - 2000 and l1 > h2 - self.params.buffer:
             self._bull_zones.append((h0, l1))
             self.lines.fvg_up_event[0] = 1.0
 
-        if h1 < l0  and h1 < l2 + self.params.buffer:
-            print("opa")
+        if h1 < l0 + 2000  and h1 < l2 + self.params.buffer:
             self._bear_zones.append((h1, l0))
             self.lines.fvg_down_event[0] = 1.0
 
@@ -103,4 +102,3 @@ class FVG(bt.Indicator):
             level = max([z[1] for z in self._bear_zones])
             self.lines.fvg_down[0] = level
             self.lines.fvg_down_active[0] = 1.0
-            print("yeeeee")

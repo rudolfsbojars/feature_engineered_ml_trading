@@ -4,6 +4,7 @@ import numpy as np
 from matplotlib.dates import date2num
 import matplotlib.pyplot as plt
 from datetime import timedelta
+from enum import IntEnum
 
 # Create teh volume agreagator based on range given
 # Range extractor based on type
@@ -12,6 +13,45 @@ from datetime import timedelta
 # Plotter
 # Data
 
+class LookbackWindowMode(IntEnum):
+    DAY = 1
+    WEEK = 2
+    MONTH = 3
+
+
+class VolumeProfile(bt.Indicator):
+    lines = ('dummy',)
+    params = (
+        ('level_count_per_range', 50),
+        ('lookback_window_mode', LookbackWindowMode.WEEK),
+        ('volume_level_file_path', None),
+    )
+    
+    # rolling data
+    # current range calc
+    # current range cycle restart
+    # range agregator of data
+    # keep track of already computed profile
+    # only recompute if min and max is streching so new bin highs and lows
+
+    def __init__(self):
+        pass
+
+    def next(self):
+        pass
+        
+        
+        
+        
+"""
+log(O^2)
+
+laods whole file and loops trough on every candle or step the enitre array and recomputes profile everyhtime
+the file rows are millions of lines and size for the enitre data set of already precomputed volume bins
+is about 200MB which becomes unmanagable
+
+This gets optimized by storing already computed profile, having a rolling file buffer of 2*window days
+indexing it bty the timestamp, and not searching for every price level
 
 class VolumeProfile(bt.Indicator):
     lines = ('dummy',)
@@ -142,105 +182,4 @@ class VolumeProfile(bt.Indicator):
             non_zero = row[row != 0].to_dict()
             if non_zero:
                 self.volume_df[ts] = non_zero
-
-    def plot_volume_profile(self):
-        if not self.volume_df:
-            print("No volume data to plot.")
-            return
-
-        all_timestamps = sorted(self.volume_df.keys())
-        lows, highs, closes, volumes = [], [], [], []
-
-        for ts in all_timestamps:
-            price_levels = [float(p) for p in self.volume_df[ts].keys()]
-            if not price_levels:
-                lows.append(0)
-                highs.append(0)
-                closes.append(0)
-                volumes.append(0)
-                continue
-
-            low = min(price_levels)
-            high = max(price_levels)
-            close = price_levels[-1]
-            vol = sum(self.volume_df[ts].values())
-
-            lows.append(low)
-            highs.append(high)
-            closes.append(close)
-            volumes.append(vol)
-
-        df_hourly = pd.DataFrame({
-            'low': lows,
-            'high': highs,
-            'close': closes,
-            'volume': volumes
-        }, index=all_timestamps)
-
-        bin_size = self.p.bin_size
-        window_days = self.p.window_days
-        window_hours = window_days * 24
-
-        min_price = df_hourly['low'].min()
-        max_price = df_hourly['high'].max()
-        bins = np.arange(min_price, max_price + bin_size, bin_size)
-
-        max_volume = 0
-        for start in range(0, len(df_hourly), window_hours):
-            end = start + window_hours
-            df_window = df_hourly.iloc[start:end]
-            if df_window.empty:
-                continue
-
-            vol_bins = np.zeros(len(bins)-1)
-            for ts in df_window.index:
-                if ts not in self.volume_df:
-                    continue
-                for price_str, vol in self.volume_df[ts].items():
-                    price_level = float(price_str)
-                    idx = np.searchsorted(bins, price_level, side='right') - 1
-                    if 0 <= idx < len(vol_bins):
-                        vol_bins[idx] += vol
-            max_volume = max(max_volume, vol_bins.max())
-
-        fig, ax = plt.subplots(figsize=(16,8))
-        ax.plot(df_hourly.index, df_hourly['close'], color='red', label='Price')
-
-        for start in range(0, len(df_hourly), window_hours):
-            end = start + window_hours
-            df_window = df_hourly.iloc[start:end]
-            if df_window.empty:
-                continue
-
-            vol_bins = np.zeros(len(bins)-1)
-            for ts in df_window.index:
-                if ts not in self.volume_df:
-                    continue
-                for price_str, vol in self.volume_df[ts].items():
-                    price_level = float(price_str)
-                    idx = np.searchsorted(bins, price_level, side='right') - 1
-                    if 0 <= idx < len(vol_bins):
-                        vol_bins[idx] += vol
-
-            vol_ratio = vol_bins / max_volume
-            start_time = date2num(df_window.index[0])
-            end_time = date2num(df_window.index[-1])
-            total_width = end_time - start_time
-
-            for i in range(len(vol_bins)):
-                bar_width = total_width * vol_ratio[i]
-                ax.barh(
-                    y=bins[i],
-                    width=bar_width,
-                    left=start_time,
-                    height=bin_size*0.9,
-                    color='lightblue',
-                    alpha=0.5,
-                    edgecolor='k'
-                )
-
-        ax.set_xlabel("Time")
-        ax.set_ylabel("Price (USD)")
-        ax.set_title("Backtrader Price + Horizontal Volume Profile")
-        fig.autofmt_xdate()
-        plt.show()
+"""

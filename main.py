@@ -18,15 +18,16 @@ cols = [
 
 class Strategy(bt.Strategy):    
     def __init__(self, volume_file=None):
-        self.rsi = RSI(self.data, period=14)
+        #self.rsi = RSI(self.data, period=14)
         
-        self.ema20 = EMA(self.data, period=20)
-        self.ema50 = EMA(self.data, period=50)
+        #self.ema20 = EMA(self.data, period=20)
+        #self.ema50 = EMA(self.data, period=50)
         
-        self.structure = AdaptivePIP(self.data, atr_period=14, atr_multiplier=5)
-        self.bos = BreakOfStructure(pip_indicator=self.structure)
+        #self.structure = AdaptivePIP(self.data, atr_period=14, atr_multiplier=5)
+        #self.bos = BreakOfStructure(pip_indicator=self.structure)
         
-        self.fvg = FVG(self.data, buffer=5)
+        #self.fvg = FVG(self.data, buffer=5)
+        
         self.vbp = VolumeProfile(
             self.data,
             bin_size=50,
@@ -38,8 +39,8 @@ class Strategy(bt.Strategy):
         
                 
     def next(self):
-        self.print_values()
-        self.save_values()
+        #self.print_values()
+        #self.save_values()
         pass
         
         

@@ -24,10 +24,10 @@ class MLM:
     def run_all(self):
         print("MLM: Running Sequence")
         
-        #SCALARS ARE SHARDED IN NORMALIZE BUT THE GROUPS ARE DEFIENED SEPERATLY
+        #SCALARS ARE SHARDED IN NORMALIZE BUT THE GROUPS ARE DEFIENED SEPERATLY MAYBE A PROBLEM
 
         self.df = self.load_data(self.read_file)
-        self.df = self.convert_to_difference_features(self.df)  
+        self.df = self.convert_to_difference_features(self.df)
         self.df = self.add_random_features(self.df)
         
         self.df = self.df.dropna().reset_index(drop=True)

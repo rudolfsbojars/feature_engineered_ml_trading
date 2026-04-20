@@ -122,8 +122,32 @@ def process_file(file_path, save_folder, bin_height=0.1):
     )
 
     result.to_parquet(save_path, index=False)
-            
-                
+    
+def convert_timeframe(input_path, output_path, compression=15):
+    cols = [
+        "open_time","open","high","low","close","volume",
+        "close_time","quote_volume","trades",
+        "taker_base","taker_quote","ignore"
+    ]
+    
+    df = pd.read_csv(input_path, names=cols, on_bad_lines='skip')
+    df = df.set_index("open_time")
+    df.index = pd.to_datetime(df.index, unit="ms", utc=True)
+
+    df_resampled = df.resample(f"{compression}min").agg({
+        "open": "first",
+        "high": "max",
+        "low": "min",
+        "close": "last",
+        "volume": "sum"
+    }).dropna()
+    
+    df_resampled.index = df_resampled.index.astype("int64") 
+    df_resampled.index.name = "open_time"
+
+    df_resampled.to_csv(output_path)
+    print(f"Saved {len(df_resampled)} bars to {output_path}")
+    
 if __name__ == '__main__':
     
     #import_binance_data()
@@ -145,10 +169,28 @@ if __name__ == '__main__':
     #process_file("data/spot/all/SOLUSDT-1m-2020-08-2026-03.csv", "data/spot/volume_levels", 0.01)
     
     
-    df_timeframe = pd.read_csv("data/spot/all/SOLUSDT-1m-2020-08-2026-03.csv")
-    print("Price Data SOLANA: \n",df_timeframe.tail(50))
+    #df_timeframe = pd.read_csv("data/spot/all/SOLUSDT-1m-2020-08-2026-03.csv")
+    #print("Price Data SOLANA: \n",df_timeframe.tail(50))
     
-    df_volume = pd.read_parquet("data/spot/volume_levels/SOLUSDT-1m-2020-08-2026-03.parquet")
-    print("Volume Level SOLANA: \n",df_volume.tail(50))
+    #df_volume = pd.read_parquet("data/spot/volume_levels/SOLUSDT-1m-2020-08-2026-03.parquet")
+    #print("Volume Level SOLANA: \n",df_volume.tail(50))
+    
+    convert_timeframe(
+        "data/spot/all/ETHUSDT-1m-2017-08-2026-03.csv",
+        "data/spot/all/ETHUSDT-15m-2017-08-2026-03.csv",
+        compression=15
+    )
+    
+    convert_timeframe(
+        "data/spot/all/ETHUSDT-1m-2017-08-2026-03.csv",
+        "data/spot/all/ETHUSDT-1h-2017-08-2026-03.csv",
+        compression=60
+    )
+        
+    convert_timeframe(
+        "data/spot/all/ETHUSDT-1m-2017-08-2026-03.csv",
+        "data/spot/all/ETHUSDT-4h-2017-08-2026-03.csv",
+        compression=240
+    )
     
     pass

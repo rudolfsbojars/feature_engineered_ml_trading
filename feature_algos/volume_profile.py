@@ -3,15 +3,9 @@ import pandas as pd
 import numpy as np
 from matplotlib.dates import date2num
 import matplotlib.pyplot as plt
-from datetime import timedelta
+from datetime import timedelta, datetime
 from enum import IntEnum
-
-# Create teh volume agreagator based on range given
-# Range extractor based on type
-# Poc Finder
-# Volume Area Finder
-# Plotter
-# Data
+import pyarrow.dataset as ds
 
 class LookbackWindowMode(IntEnum):
     DAY = 1
@@ -21,26 +15,154 @@ class LookbackWindowMode(IntEnum):
 
 class VolumeProfile(bt.Indicator):
     lines = ('dummy',)
+    plotinfo = dict(plot=False)
     params = (
         ('level_count_per_range', 50),
         ('lookback_window_mode', LookbackWindowMode.WEEK),
         ('volume_level_file_path', None),
+        ('volume_area', 0.7),
     )
-    
-    # rolling data
-    # current range calc
-    # current range cycle restart
-    # range agregator of data
-    # keep track of already computed profile
-    # only recompute if min and max is streching so new bin highs and lows
 
     def __init__(self):
-        pass
+        if not self.p.volume_level_file_path:
+            raise ValueError("volume_level_file_path is required")
+
+        self.dataset = ds.dataset(self.p.volume_level_file_path, format="parquet")
+        
+        self.prev_start_ts = None
+        self.prev_end_ts = None
+        
+        self.df_volume = pd.DataFrame(columns=["bin", "volume"])
+        
+        self.poc = None
+        self.va_high = None
+        self.va_low = None
+        self.poc_delta = None
+        self.poc_volume = None
 
     def next(self):
-        pass
+        current_time = self.data.datetime.datetime(0)
+        start_ts, end_ts = self.get_range(current_time)
         
+        self.update_data(start_ts,end_ts)
         
+        self.structure_volume_profile()
+        
+        self.prev_start_ts = start_ts
+        self.prev_end_ts = end_ts
+        
+    def structure_volume_profile(self):
+        if self.df_volume.empty:
+            return
+        
+        price_low = self.df_volume["bin"].min()
+        price_high = self.df_volume["bin"].max()
+        
+        bin_count = self.p.level_count_per_range
+        bin_size = (price_high - price_low) / bin_count
+        
+        if bin_size == 0:
+            return
+        
+        df = self.df_volume.copy()
+        df["level"] = ((df["bin"] - price_low) / bin_size).astype(int).clip(0, bin_count - 1)
+        
+        levels = pd.DataFrame({
+            "level": range(bin_count),
+            "price": [price_low + (i * bin_size) for i in range(bin_count)]
+        })
+        
+        aggregated = (
+            df.groupby("level", as_index=False)["volume"]
+            .sum()
+        )
+        
+        profile = levels.merge(aggregated, on="level", how="left").fillna(0)
+        
+        poc_idx = profile["volume"].idxmax()
+        if(self.poc is None):
+            self.poc = profile.loc[poc_idx, "price"]
+        
+        self.poc_delta = self.poc - profile.loc[poc_idx, "price"]
+        self.poc = profile.loc[poc_idx, "price"]
+        self.poc_volume = profile.loc[poc_idx, "volume"]
+        
+        total_volume = profile["volume"].sum()
+        target = total_volume * self.p.volume_area
+        accumulated = profile.loc[poc_idx, "volume"]
+        upper = poc_idx
+        lower = poc_idx
+        
+        while accumulated < target:
+            up_vol = profile.loc[upper + 1, "volume"] if upper + 1 < len(profile) else 0
+            down_vol = profile.loc[lower - 1, "volume"] if lower - 1 >= 0 else 0
+            
+            if up_vol == 0 and down_vol == 0:
+                break
+            
+            if up_vol >= down_vol:
+                upper = min(upper + 1, len(profile) - 1)
+                accumulated += up_vol
+            else:
+                lower = max(lower - 1, 0)
+                accumulated += down_vol
+        
+        self.va_high = profile.loc[upper, "price"]
+        self.va_low = profile.loc[lower, "price"]
+        
+        self.profile = profile
+        
+    def update_data(self, start_ts, end_ts):
+        if self.prev_start_ts is not None and start_ts == self.prev_start_ts:
+            df = self.load_range(self.prev_end_ts + 1, end_ts)
+        
+            if not df.empty:
+                self.df_volume = (
+                    pd.concat([self.df_volume, df[["bin", "volume"]]], ignore_index=True)
+                    .groupby("bin", as_index=False)["volume"]
+                    .sum()
+                )
+        else:
+            df = self.load_range(start_ts, end_ts)
+            self.df_volume = (
+                df[["bin", "volume"]]
+                .groupby("bin", as_index=False)["volume"]
+                .sum()
+            )
+            
+    
+    def get_range(self, dt):
+        mode = self.p.lookback_window_mode
+
+        dt = pd.Timestamp(dt).tz_localize("UTC")
+
+        if mode == LookbackWindowMode.DAY:
+            start = dt.normalize()
+
+        elif mode == LookbackWindowMode.WEEK:
+            start = dt.normalize() - pd.Timedelta(days=dt.weekday())
+
+        elif mode == LookbackWindowMode.MONTH:
+            start = dt.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        else:
+            raise NotImplementedError
+
+        start_ts = int(start.timestamp() * 1000)
+        end_ts = int(dt.timestamp() * 1000)
+        
+        return start_ts, end_ts
+    
+    def load_range(self, start_ts, end_ts):
+        table = self.dataset.to_table(
+            filter=(
+                (ds.field("minute") >= start_ts) &
+                (ds.field("minute") <= end_ts)
+            ),
+            columns=["minute", "bin", "volume"]
+        )
+
+        df = table.to_pandas()
+        return df    
         
         
 """

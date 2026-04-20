@@ -3,9 +3,13 @@ import numpy as np
 from sklearn.preprocessing import StandardScaler
 import tensorflow as tf
 from xgboost import XGBClassifier
-from sklearn.metrics import accuracy_score, precision_score, recall_score
+from sklearn.metrics import (accuracy_score, precision_score, recall_score, 
+                             f1_score, roc_auc_score, log_loss, 
+                             roc_curve, precision_recall_curve, confusion_matrix, ConfusionMatrixDisplay)
 import joblib
 import os
+import matplotlib.pyplot as plt
+
 
 # takes shape of "open", "high", "low", "close", "volume", "rsi", "ema20", "ema50", "bos_bull", "bos_bear", "fvg_up_active", "fvg_down_active", "poc", "va_high", "va_low", "poc_delta", "poc_volume"
 
@@ -32,7 +36,7 @@ class MLM:
         
         self.df = self.df.dropna().reset_index(drop=True)
         
-        train, test = self.split_data(self.df)
+        train, test = self.split_data(self.df, 0.8)
         
         train = self.label_data(train)
         test = self.label_data(test)
@@ -54,7 +58,7 @@ class MLM:
 
             model = self.train_xgb(X_train, y_train)
 
-            metrics = self.evaluate(model, X_test, y_test)
+            metrics = self.evaluate(model, X_test, y_test, name)
 
             self.print_feature_importance(model, features)
 
@@ -78,8 +82,12 @@ class MLM:
         self.file_name = file_name
         df_local = pd.read_csv(file_name, parse_dates=["timestamp"])
         df_local = df_local.sort_values("timestamp").reset_index(drop=True)
-        return df_local
         
+        cutoff = pd.Timestamp("2025-01-01")
+        df_local = df_local[df_local["timestamp"] < cutoff]
+            
+        return df_local
+            
     def convert_to_difference_features(self, df):
         print("MLM: Getting Logs and Diffs")
         
@@ -155,6 +163,7 @@ class MLM:
                     label = 0
                     break
 
+
             labels[i] = label
 
         df_local["label"] = labels
@@ -229,24 +238,54 @@ class MLM:
 
         return model
     
-    def evaluate(self, model, X_test, y_test):
-        print("MLM: Evaluating model")
+    def evaluate(self, model, X_test, y_test, model_name="Model"):
+        print(f"MLM: Evaluating {model_name}")
 
         probs = model.predict_proba(X_test)[:, 1]
         preds = (probs > 0.5).astype(int)
 
         acc = accuracy_score(y_test, preds)
-        prec = precision_score(y_test, preds)
-        rec = recall_score(y_test, preds)
+        prec = precision_score(y_test, preds, zero_division=0)
+        rec = recall_score(y_test, preds, zero_division=0)
+        f1 = f1_score(y_test, preds, zero_division=0)
+        roc_auc = roc_auc_score(y_test, probs)
+        loss = log_loss(y_test, probs)
 
-        print(f"Accuracy: {acc:.4f}")
+        print(f"Accuracy:  {acc:.4f}")
         print(f"Precision: {prec:.4f}")
-        print(f"Recall: {rec:.4f}")
+        print(f"Recall:    {rec:.4f}")
+        print(f"F1-Score:  {f1:.4f}")
+        print(f"ROC AUC:   {roc_auc:.4f}")
+        print(f"Log Loss:  {loss:.4f}")
+
+        fig, ax = plt.subplots(1, 2, figsize=(14, 5))
+
+        fpr, tpr, _ = roc_curve(y_test, probs)
+        ax[0].plot(fpr, tpr, label=f'AUC = {roc_auc:.4f}', color='darkorange', lw=2)
+        ax[0].plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+        ax[0].set_title(f'ROC Curve - {model_name}')
+        ax[0].set_xlabel('False Positive Rate')
+        ax[0].set_ylabel('True Positive Rate')
+        ax[0].legend(loc="lower right")
+        ax[0].grid(alpha=0.3)
+
+        precision_vals, recall_vals, _ = precision_recall_curve(y_test, probs)
+        ax[1].plot(recall_vals, precision_vals, color='blue', lw=2)
+        ax[1].set_title(f'Precision-Recall Curve - {model_name}')
+        ax[1].set_xlabel('Recall')
+        ax[1].set_ylabel('Precision')
+        ax[1].grid(alpha=0.3)
+
+        plt.tight_layout()
+        plt.show()
 
         return {
             "accuracy": acc,
             "precision": prec,
-            "recall": rec
+            "recall": rec,
+            "f1": f1,
+            "roc_auc": roc_auc,
+            "log_loss": loss
         }
         
     def print_feature_importance(self, model, feature_columns):
@@ -274,5 +313,5 @@ class MLM:
 
 
 if __name__ == '__main__':
-    model = MLM("data/feature_extracted/BTCUSDT-1h-2022-04.csv", "models/test_model")
+    model = MLM("data/feature_extracted/15M/BTCUSDT-15m-2017-08-2026-03-features.csv", "models/BTC_15M/btc_2017_2024")
     model.run_all()

@@ -45,17 +45,13 @@ class BreakOfStructure(bt.Indicator):
 class FVG(bt.Indicator):
     lines = (
         'fvg_up', 'fvg_down',
-        'fvg_up_event', 'fvg_down_event',
         'fvg_up_active', 'fvg_down_active'
     )
-    plotinfo = dict(subplot=True)
+    
+    plotinfo = dict(subplot=False)
     plotlines = dict(
         fvg_up=dict(color='lime', ls='--', linewidth=2, _name='FVG Up'),
         fvg_down=dict(color='red', ls='--', linewidth=2, _name='FVG Down')
-    )
-
-    params = dict(
-        buffer=0.001,
     )
 
     def __init__(self):
@@ -63,22 +59,14 @@ class FVG(bt.Indicator):
         self._bear_zones = []
 
     def next(self):
-        if len(self.data.close) < 3:
-            return
+        h1, h3 = self.data.high[-2], self.data.high[0]
+        l1, l3 = self.data.low[-2], self.data.low[0]
 
-        h0, h1, h2 = self.data.high[-3], self.data.high[-2], self.data.high[-1]
-        l0, l1, l2 = self.data.low[-3], self.data.low[-2], self.data.low[-1]
+        if l3 > h1:
+            self._bull_zones.append((h1, l3))
 
-        self.lines.fvg_up_event[0] = 0.0
-        self.lines.fvg_down_event[0] = 0.0
-
-        if l1 > h0 - 2000 and l1 > h2 - self.params.buffer:
-            self._bull_zones.append((h0, l1))
-            self.lines.fvg_up_event[0] = 1.0
-
-        if h1 < l0 + 2000  and h1 < l2 + self.params.buffer:
-            self._bear_zones.append((h1, l0))
-            self.lines.fvg_down_event[0] = 1.0
+        if h3 < l1:
+            self._bear_zones.append((h3, l1))
 
         for zone in self._bull_zones[:]:
             if self.data.low[0] <= zone[0]:
@@ -94,11 +82,9 @@ class FVG(bt.Indicator):
         self.lines.fvg_down_active[0] = 0.0
 
         if self._bull_zones:
-            level = min([z[0] for z in self._bull_zones])
-            self.lines.fvg_up[0] = level
+            self.lines.fvg_up[0] = min(z[0] for z in self._bull_zones)
             self.lines.fvg_up_active[0] = 1.0
 
         if self._bear_zones:
-            level = max([z[1] for z in self._bear_zones])
-            self.lines.fvg_down[0] = level
+            self.lines.fvg_down[0] = max(z[1] for z in self._bear_zones)
             self.lines.fvg_down_active[0] = 1.0

@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 from sklearn.preprocessing import StandardScaler
+from sklearn.feature_selection import mutual_info_classif
+from scipy.stats import spearmanr
 import tensorflow as tf
 from xgboost import XGBClassifier
 from sklearn.metrics import (accuracy_score, precision_score, recall_score, 
@@ -9,6 +11,9 @@ from sklearn.metrics import (accuracy_score, precision_score, recall_score,
 import joblib
 import os
 import matplotlib.pyplot as plt
+import json
+from datetime import datetime
+from sklearn.model_selection import GridSearchCV
 
 
 # takes shape of "open", "high", "low", "close", "volume", "rsi", "ema20", "ema50", "bos_bull", "bos_bear", "fvg_up_active", "fvg_down_active", "poc", "va_high", "va_low", "poc_delta", "poc_volume"
@@ -24,13 +29,17 @@ class MLM:
     def __init__(self, read_file,  save_file_name):
         self.save_file_name = save_file_name
         self.read_file = read_file 
+
     
-    def run_all(self):
+    def run_all(self,  start_date=None, end_date=None):
         print("MLM: Running Sequence")
         
-        #SCALARS ARE SHARDED IN NORMALIZE BUT THE GROUPS ARE DEFIENED SEPERATLY MAYBE A PROBLEM
+        folder_name = f"{start_date}_{end_date}".replace(":", "-")
+        base_path = os.path.join(self.save_file_name, folder_name)
 
-        self.df = self.load_data(self.read_file)
+        os.makedirs(base_path, exist_ok=True)
+
+        self.df = self.load_data(self.read_file, start_date, end_date)
         self.df = self.convert_to_difference_features(self.df)
         self.df = self.add_random_features(self.df)
         
@@ -40,6 +49,8 @@ class MLM:
         
         train = self.label_data(train)
         test = self.label_data(test)
+        
+        print("IC and MI result: ", self.calculate_ic_mi(train))
         
         print("Train Data: ", train.head())
         print("Test Data: ", train.head())
@@ -52,6 +63,8 @@ class MLM:
 
             X_train = train[features]
             X_test  = test[features]
+            
+            print(f"Model :{name}, \nTrain Data: {X_train.head(10)}")
 
             y_train = train["label"]
             y_test  = test["label"]
@@ -66,25 +79,34 @@ class MLM:
                 model,
                 scalers,
                 features,  
-                path=f"{self.save_file_name}_{name}.pkl"
+                path=os.path.join(base_path, f"{name}.pkl"),
+                metrics=metrics,
             )
 
             results[name] = metrics
+            
+            with open(os.path.join(base_path, "results.json"), "w") as f:
+                json.dump(results, f, indent=4)
 
 
         print("FINAL RESULTS:")
         for k, v in results.items():
             print(k, v)
             
-    def load_data(self, file_name=None):
+    def load_data(self, file_name=None, start_date=None, end_date=None):
         print("MLM: Loading File")
         
         self.file_name = file_name
         df_local = pd.read_csv(file_name, parse_dates=["timestamp"])
         df_local = df_local.sort_values("timestamp").reset_index(drop=True)
         
-        cutoff = pd.Timestamp("2025-01-01")
-        df_local = df_local[df_local["timestamp"] < cutoff]
+        if start_date is not None:
+            start_date = pd.Timestamp(start_date)
+            df_local = df_local[df_local["timestamp"] >= start_date]
+
+        if end_date is not None:
+            end_date = pd.Timestamp(end_date)
+            df_local = df_local[df_local["timestamp"] <= end_date]
             
         return df_local
             
@@ -221,14 +243,41 @@ class MLM:
         
         return df_local
     
+    def optimize_xgb(self, X_train, y_train):
+        print("MLM: Starting Grid Search for best parameters...")
+
+        param_grid = {
+            'n_estimators': [100, 200],
+            'max_depth': [3, 4, 6],
+            'learning_rate': [0.01, 0.05, 0.1],
+            'subsample': [0.8, 1.0]
+        }
+
+        xgb = XGBClassifier(random_state=1, eval_metric='logloss')
+
+        grid_search = GridSearchCV(
+            estimator=xgb, 
+            param_grid=param_grid, 
+            cv=3, 
+            scoring='accuracy', # Meklē labāko Accuracy bakalaura piemini
+            verbose=1
+        )
+
+        grid_search.fit(X_train, y_train)
+
+        print(f"Best parameters found: {grid_search.best_params_}")
+        print(f"Best accuracy: {grid_search.best_score_:.4f}")
+
+        return grid_search.best_estimator_
+    
     def train_xgb(self, X_train, y_train):
         print("MLM: Training XGBoost")
 
         model = XGBClassifier(
-            n_estimators=200,
+            n_estimators=100,
             max_depth=4,
-            learning_rate=0.05,
-            subsample=0.8,
+            learning_rate=0.01,
+            subsample=1,
             colsample_bytree=0.8,
             random_state=1,
             eval_metric='logloss'
@@ -258,6 +307,7 @@ class MLM:
         print(f"ROC AUC:   {roc_auc:.4f}")
         print(f"Log Loss:  {loss:.4f}")
 
+        """
         fig, ax = plt.subplots(1, 2, figsize=(14, 5))
 
         fpr, tpr, _ = roc_curve(y_test, probs)
@@ -278,6 +328,7 @@ class MLM:
 
         plt.tight_layout()
         plt.show()
+        """
 
         return {
             "accuracy": acc,
@@ -288,6 +339,38 @@ class MLM:
             "log_loss": loss
         }
         
+    def calculate_ic_mi(self, df):
+        print("MLM: Calculating IC and MI")
+        
+        features = FEATURE_SETS["full"]
+        
+        X = df[features].dropna()
+        y = df.loc[X.index, "label"]
+        
+        mi = mutual_info_classif(X, y, random_state=1)
+        
+        ic_results = []
+        for col in features:
+            corr, pval = spearmanr(X[col], y)
+            ic_results.append({"feature": col, "IC": round(corr, 4), "p_value": round(pval, 4), "MI": round(mi[features.index(col)], 4)})
+        
+        result_df = pd.DataFrame(ic_results).sort_values("MI", ascending=False)
+        print(result_df.to_string(index=False))
+        
+        result_df.to_csv(os.path.join(self.save_file_name, "ic_mi.csv"), index=False)
+        
+        return result_df
+    
+    def label_data_next_candle(self, df):
+        print("MLM: Labeling Data (next candle) for MI and IC")
+
+        df_local = df.copy()
+
+        df_local["label"] = (df_local["close"].shift(-1) > df_local["close"]).astype(int)
+        df_local = df_local.dropna(subset=["label"])
+
+        return df_local
+            
     def print_feature_importance(self, model, feature_columns):
         print("MLM: Feature Importance:")
 
@@ -296,7 +379,7 @@ class MLM:
         for name, imp in sorted(zip(feature_columns, importances), key=lambda x: x[1], reverse=True):
             print(f"{name}: {imp:.4f}")         
     
-    def save_model(self, model, scalers, feature_columns, path="models/xgb_model.pkl"):
+    def save_model(self, model, scalers, feature_columns, path="models/xgb_model.pkl", metrics=None, name=None):
         print("MLM: Saving model")
 
         os.makedirs("models", exist_ok=True)
@@ -304,7 +387,10 @@ class MLM:
         package = {
             "model": model,
             "scalers": scalers,
-            "features": feature_columns
+            "features": feature_columns,
+            "metrics": metrics,
+            "model_name": name,
+            "created_at": str(datetime.now())
         }
 
         joblib.dump(package, path)
@@ -313,5 +399,5 @@ class MLM:
 
 
 if __name__ == '__main__':
-    model = MLM("data/feature_extracted/15M/BTCUSDT-15m-2017-08-2026-03-features.csv", "models/BTC_15M/btc_2017_2024")
-    model.run_all()
+    model = MLM("data/feature_extracted/15M/BTCUSDT-15m-2017-08-2026-03-features.csv", "models/BTC_15M/") #VARIABLE
+    model.run_all(start_date="2018-10-01", end_date="2020-01-01") #VARIABLE

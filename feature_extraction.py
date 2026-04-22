@@ -22,6 +22,7 @@ class FeatureExtractedStrategy(bt.Strategy):
         self.ema50 = EMA(self.data, period=50)
         self.pip = AdaptivePIP(self.data, atr_period=14, atr_multiplier=5)
         self.bos = BreakOfStructure(self.data, lookback=50, pip_indicator=self.pip)
+        
         self.fvg = FVG(self.data)
         self.vbp = VolumeProfile(
             self.data,
@@ -30,16 +31,19 @@ class FeatureExtractedStrategy(bt.Strategy):
             volume_level_file_path=volume_level_file_path,
             volume_area=0.7,
         )
+        
+        self.feature_save_file_path = feature_save_file_path
 
         self.feature_rows = []
         
                 
     def next(self):
-        self.save_values()
+        #self.save_values()
+        pass
     
     def stop(self):
         df = pd.DataFrame(self.feature_rows)
-        df.to_csv("data/feature_extracted/15M/BTCUSDT-15m-2017-08-2026-03-features.csv", index=False)
+        df.to_csv(self.feature_save_file_path, index=False) 
         print(f"Saved {len(df)} rows to features csv")
     
     def save_values(self):
@@ -95,7 +99,7 @@ class FeatureExtractedStrategy(bt.Strategy):
 
         self.feature_rows.append(row)
     
-def load_data_feed(file_path):
+def load_data_feed(file_path, cutoff_date):
     df = pd.read_csv(file_path, header=0, on_bad_lines='skip')
     
     df.columns = [
@@ -106,6 +110,10 @@ def load_data_feed(file_path):
     
     df["open_time"] = pd.to_datetime(df["open_time"], unit="ms")
     df = df.set_index("open_time")
+    
+    if cutoff_date is not None:
+        df = df[df.index <= cutoff_date] 
+    
     df.dropna(inplace=True)
     
     print("Dataframe Loaded")
@@ -118,14 +126,13 @@ def main():
     
     cerebro = bt.Cerebro(stdstats=False)
       
-    data = load_data_feed("data/spot/all/BTCUSDT-15m-2017-08-2026-03.csv")
+    data = load_data_feed("data/spot/all/BTCUSDT-15m-2017-08-2026-03.csv", "2017-09-01") #VARIABLE
     cerebro.adddata(data)
     
     cerebro.addstrategy(
         FeatureExtractedStrategy, 
-        volume_level_file_path="data/spot/volume_levels/BTCUSDT-1m-2017-08-2026-03.parquet",
-        feature_save_file_path="data/feature_extracted/15M/BTCUSDT-15m-2017-08-2026-03-features.csv",
-    
+        volume_level_file_path="data/spot/volume_levels/BTCUSDT-1m-2017-08-2026-03.parquet", #VARIABLE
+        #feature_save_file_path="data/feature_extracted/15M/yeeeBTCUSDT-15m-2017-08-2026-03-features.csv", #VARIABLE
     )
     print("Cerebro Loaded")
 

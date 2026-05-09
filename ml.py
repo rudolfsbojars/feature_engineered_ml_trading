@@ -14,6 +14,8 @@ import matplotlib.pyplot as plt
 import json
 from datetime import datetime
 from sklearn.model_selection import GridSearchCV
+from dateutil.relativedelta import relativedelta
+from datetime import datetime
 
 
 # takes shape of "open", "high", "low", "close", "volume", "rsi", "ema20", "ema50", "bos_bull", "bos_bear", "fvg_up_active", "fvg_down_active", "poc", "va_high", "va_low", "poc_delta", "poc_volume"
@@ -47,8 +49,8 @@ class MLM:
         
         train, test = self.split_data(self.df, 0.8)
         
-        train = self.label_data(train)
-        test = self.label_data(test)
+        train = self.label_data(train, n_candles=14, tp_pct=0.01, sl_pct=0.01)  #VARIABLE
+        test = self.label_data(test , n_candles=14, tp_pct=0.01, sl_pct=0.01) #VARIABLE
         
         print("IC and MI result: ", self.calculate_ic_mi(train))
         
@@ -259,7 +261,7 @@ class MLM:
             estimator=xgb, 
             param_grid=param_grid, 
             cv=3, 
-            scoring='accuracy', # Meklē labāko Accuracy bakalaura piemini
+            scoring='accuracy', # Finds By Best Accuracy
             verbose=1
         )
 
@@ -399,5 +401,16 @@ class MLM:
 
 
 if __name__ == '__main__':
-    model = MLM("data/feature_extracted/15M/BTCUSDT-15m-2017-08-2026-03-features.csv", "models/BTC_15M/") #VARIABLE
-    model.run_all(start_date="2018-10-01", end_date="2020-01-01") #VARIABLE
+    train_start = datetime(2021, 1, 1)  #VARIABLE
+    end_limit = datetime(2026, 1, 1)  #VARIABLE
+
+    while train_start + relativedelta(years=4) <= end_limit: #VARIABLE
+        train_end = train_start + relativedelta(years=4) #VARIABLE
+
+        model = MLM("data/feature_extracted/4H/SOLUSDT-4h-2020-08-2026-03-features.csv", "models/SOL_4H/4Years")  #VARIABLE
+        model.run_all(
+            start_date=train_start.strftime("%Y-%m-%d"),
+            end_date=train_end.strftime("%Y-%m-%d")
+        )
+
+        train_start += relativedelta(months=3)

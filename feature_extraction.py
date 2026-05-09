@@ -38,7 +38,7 @@ class FeatureExtractedStrategy(bt.Strategy):
         
                 
     def next(self):
-        #self.save_values()
+        self.save_values()
         pass
     
     def stop(self):
@@ -126,13 +126,13 @@ def main():
     
     cerebro = bt.Cerebro(stdstats=False)
       
-    data = load_data_feed("data/spot/all/BTCUSDT-15m-2017-08-2026-03.csv", "2017-09-01") #VARIABLE
+    data = load_data_feed("data/spot/all/SOLUSDT-4h-2020-08-2026-03.csv", "2026-04-01") #VARIABLE
     cerebro.adddata(data)
     
     cerebro.addstrategy(
         FeatureExtractedStrategy, 
-        volume_level_file_path="data/spot/volume_levels/BTCUSDT-1m-2017-08-2026-03.parquet", #VARIABLE
-        #feature_save_file_path="data/feature_extracted/15M/yeeeBTCUSDT-15m-2017-08-2026-03-features.csv", #VARIABLE
+        volume_level_file_path="data/spot/volume_levels/SOLUSDT-1m-2020-08-2026-03.parquet", #VARIABLE
+        feature_save_file_path="data/feature_extracted/4H/SOLUSDT-4h-2020-08-2026-03-features.csv", #VARIABLE
     )
     print("Cerebro Loaded")
 

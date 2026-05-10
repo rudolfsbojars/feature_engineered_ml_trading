@@ -1,6 +1,7 @@
 import joblib
 import pandas as pd
 from pathlib import Path
+import pyarrow.dataset as ds
 
 def feature_importance():
     root = Path(input("Ievadi ceļu uz mapes sakni: ").strip())
@@ -35,9 +36,16 @@ def feature_importance():
         print(f"Saglabāts: feature_importance_{fs}.csv")
         
 
+def print_parquete():
+    path = "data/spot/volume_levels/BTCUSDT-1m-2017-08-2026-03.parquet"
 
+    dataset = ds.dataset(path, format="parquet")
+    table = dataset.to_table()
+    df = table.to_pandas()
+
+    print(df.head(20))
 
 if __name__ == "__main__":
-    
+    print_parquete()
     
     pass

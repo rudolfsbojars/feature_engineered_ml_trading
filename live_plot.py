@@ -45,6 +45,8 @@ class LivePlotStrategy(bt.Strategy):
             sharex=True
         )
         self.fig.tight_layout(pad=2)
+        
+        self.bos_events = []
  
     def next(self):
         bar = len(self) - 1
@@ -122,24 +124,89 @@ class LivePlotStrategy(bt.Strategy):
         self.ax1.scatter(vl_xs, vl_ys, marker="v", s=60, color="tomato", zorder=5, label="Valley")
  
         # BOS
-        bos_bull = self.bos.lines.bos_bull[0]
-        bos_bear = self.bos.lines.bos_bear[0]
-        if bos_bull == 1.0:
-            self.ax1.annotate("↑BOS", xy=(bar, self.data.close[0]),
-                              color="gold", fontsize=8, fontweight="bold",
-                              xytext=(bar, self.data.close[0] * 1.003),
-                              arrowprops=dict(arrowstyle="-", color="gold", lw=0.8))
-        if bos_bear == 1.0:
-            self.ax1.annotate("↓BOS", xy=(bar, self.data.close[0]),
-                              color="salmon", fontsize=8, fontweight="bold",
-                              xytext=(bar, self.data.close[0] * 0.997),
-                              arrowprops=dict(arrowstyle="-", color="salmon", lw=0.8))
+        if self.bos.lines.bos_bull[0] == 1.0:
+            self.bos_events.append((bar, self.data.close[0], "bull"))
+
+        if self.bos.lines.bos_bear[0] == 1.0:
+            self.bos_events.append((bar, self.data.close[0], "bear"))
+            
+        for i, (x, price, side) in enumerate(self.bos_events):
+            if x < bar - size:
+                continue
+
+            if i == 0:
+                if side == "bull":
+                    self.ax1.scatter(x, price, color="gold", s=80, marker="^", label="BOS", zorder=6)
+                else:
+                    self.ax1.scatter(x, price, color="red", s=80, marker="v", label="BOS", zorder=6)
+            else:
+                self.ax1.scatter(
+                    x, price,
+                    color="gold" if side == "bull" else "red",
+                    s=80,
+                    marker="^" if side == "bull" else "v",
+                    zorder=6
+                )
  
         # FVG zones
+        fvg_labeled = False
+
         for lo, hi in self.fvg._bull_zones:
-            self.ax1.axhspan(lo, hi, alpha=0.15, color="green", zorder=1)
+            if hi >= lows[0] and lo <= highs[-1]:
+                self.ax1.axhspan(
+                    lo, hi,
+                    alpha=0.25,
+                    color="green",
+                    zorder=2,
+                    label="FVG" if not fvg_labeled else None
+                )
+                fvg_labeled = True
+
         for lo, hi in self.fvg._bear_zones:
-            self.ax1.axhspan(lo, hi, alpha=0.15, color="red",   zorder=1)
+            if hi >= lows[0] and lo <= highs[-1]:
+                self.ax1.axhspan(
+                    lo, hi,
+                    alpha=0.25,
+                    color="red",
+                    zorder=2,
+                    label=None
+                )
+            
+            
+        if hasattr(self.vbp, "profile") and self.vbp.profile is not None:
+
+            profile = self.vbp.profile
+
+            if not profile.empty:
+
+                max_vol = profile["volume"].max()
+                if max_vol == 0:
+                    max_vol = 1
+
+                max_width = WINDOW * 0.35  # right-side profile width
+
+                price_range = profile["price"].iloc[1] - profile["price"].iloc[0] \
+                    if len(profile) > 1 else 1
+
+                for _, row in profile.iterrows():
+
+                    price = row["price"]
+                    vol   = row["volume"]
+
+                    if vol <= 0:
+                        continue
+
+                    width = (vol / max_vol) * max_width
+
+                    self.ax1.barh(
+                        y=price,
+                        width=width,
+                        height=price_range,
+                        left=xs[-1] - width,
+                        color="cyan",
+                        alpha=0.25,
+                        zorder=1
+                    )
  
         # Volume profile
         if self.vbp.va_low is not None and self.vbp.va_high is not None:

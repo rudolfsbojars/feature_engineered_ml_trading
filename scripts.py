@@ -2,8 +2,7 @@ import joblib
 import pandas as pd
 from pathlib import Path
 
-
-if __name__ == "__main__":
+def feature_importance():
     root = Path(input("Ievadi ceļu uz mapes sakni: ").strip())
     results = {"base": [], "base_plus_rsi_and_ema": [], "full": [], "random": []}
 
@@ -34,3 +33,11 @@ if __name__ == "__main__":
         print(avg.to_string())
         avg.to_csv(f"feature_importance_{fs}.csv")
         print(f"Saglabāts: feature_importance_{fs}.csv")
+        
+
+
+
+if __name__ == "__main__":
+    
+    
+    pass

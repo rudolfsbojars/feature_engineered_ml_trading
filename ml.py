@@ -49,8 +49,8 @@ class MLM:
         
         train, test = self.split_data(self.df, 0.8)
         
-        train = self.label_data(train, n_candles=14, tp_pct=0.01, sl_pct=0.01)  #VARIABLE
-        test = self.label_data(test , n_candles=14, tp_pct=0.01, sl_pct=0.01) #VARIABLE
+        train = self.label_data(train, n_candles=14, tp_pct=0.04, sl_pct=0.04)  #VARIABLE
+        test = self.label_data(test , n_candles=14, tp_pct=0.04, sl_pct=0.04) #VARIABLE
         
         print("IC and MI result: ", self.calculate_ic_mi(train))
         

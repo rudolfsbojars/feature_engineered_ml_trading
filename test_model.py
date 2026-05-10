@@ -16,7 +16,6 @@ class MLStrategy(bt.Strategy):
         trade_start=None,
         trade_end=None,
         threshold_buy=0.6,
-        threshold_sell=0.4,
         feature_file_path=None,
     )
 
@@ -81,8 +80,8 @@ class MLStrategy(bt.Strategy):
         if prob > self.p.threshold_buy:
             if not self.position:
                 close = self.data.close[0]
-                tp = close * 1.01 #VARIABLE
-                sl = close * 0.99 #VARIABLE
+                tp = close * 1.04 #VARIABLE
+                sl = close * 0.96 #VARIABLE
                 
                 size = (self.broker.getcash() * 0.01) / close
 
@@ -156,7 +155,6 @@ def run_backtest(data_path, model_path, feature_file_path, start_date=None, end_
         trade_start=pd.to_datetime(start_date) if start_date else None,
         trade_end=pd.to_datetime(end_date) if end_date else None,
         threshold_buy=0.55,
-        threshold_sell=0.4,
         feature_file_path=feature_file_path,
     )
 
@@ -178,7 +176,7 @@ def run_backtest(data_path, model_path, feature_file_path, start_date=None, end_
 
 
 if __name__ == "__main__":
-    train_start = datetime(2018, 1, 1) # VARIBALE
+    train_start = datetime(2021, 1, 1) # VARIBALE
     end_limit = datetime(2026, 4, 1) # VARIBALE
 
     while train_start + relativedelta(years=4) <= end_limit: # VARIBALE
@@ -189,16 +187,16 @@ if __name__ == "__main__":
         if test_end > end_limit:
             break
 
-        folder = f"models/BTC_4H/4Years/{train_start.strftime('%Y-%m-%d')}_{train_end.strftime('%Y-%m-%d')}/" # VARIBALE
+        folder = f"models/SOL_4H/4Years/{train_start.strftime('%Y-%m-%d')}_{train_end.strftime('%Y-%m-%d')}/" # VARIBALE
 
         result = run_backtest(
-            data_path="data/spot/all/BTCUSDT-4h-2017-08-2026-03.csv", # VARIBALE
+            data_path="data/spot/all/SOLUSDT-4h-2020-08-2026-03.csv", # VARIBALE
             model_path=f"{folder}base_plus_rsi_and_ema.pkl", # VARIBALE
-            feature_file_path="data/feature_extracted/4H/BTCUSDT-4h-2017-08-2026-03-features.csv", # VARIBALE
+            feature_file_path="data/feature_extracted/4H/SOLUSDT-4h-2020-08-2026-03-features.csv", # VARIBALE
             start_date=test_start.strftime("%Y-%m-%d"),
             end_date=test_end.strftime("%Y-%m-%d"),
             warmup=50,
-            timeframe=15,
+            timeframe=240, #Var
         )
 
         strat = result[0]
